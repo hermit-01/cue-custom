@@ -384,7 +384,12 @@ ipcMain.on('log', (_e, msg) => console.log('[renderer]', msg));
 function registerShortcuts() {
   globalShortcut.register('CommandOrControl+Return', () => runFeature('assist', ''));
   globalShortcut.register('CommandOrControl+Shift+Return', () => runFeature('say', ''));
-  globalShortcut.register('CommandOrControl+H', () => runFeature('leetcode', ''));
+  const hRegistered = globalShortcut.register(
+  'CommandOrControl+H',
+  () => runFeature('leetcode', '')
+);
+
+console.log('[cue] Ctrl+H registered:', hRegistered);
   globalShortcut.register('CommandOrControl+Shift+X', () => app.quit());
 }
 

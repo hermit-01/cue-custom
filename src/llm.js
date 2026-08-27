@@ -99,11 +99,11 @@ function createLLM(settings) {
   const apiKey = keys[provider];
   const tier = settings.smart ? 'smart' : 'fast';
   let model = (settings.models[provider] || {})[tier];
-  if (provider === 'gemini' && /^gemini-1\.5\-/.test(model || '')) {
+  if (provider === 'gemini' && !/^gemini-/.test(model || '')) {
     model = 'gemini-2.0-flash';
   }
   if (!model) model = provider === 'gemini' ? 'gemini-2.0-flash' : (provider === 'openai' ? 'gpt-4o-mini' : 'claude-3-5-haiku-latest');
-  const maxTokens = settings.smart ? 1400 : 700;
+  const maxTokens = settings.smart ? 3000 : 1800;
 
   return {
     provider, model, apiKey,
