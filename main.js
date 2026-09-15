@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, screen, session, desktopCapturer, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, session, desktopCapturer, shell, nativeImage } = require('electron');
 const path = require('path');
 const os = require('os');
 const store = require('./src/store');
@@ -10,6 +10,8 @@ const { rms16 } = require('./src/wav');
 const { createStreamingSTT } = require('./src/stt-streaming');
 const { AdaptiveVAD, AudioRingBuffer } = require('./src/vad');
 const { buildInterviewContext, detectCategory } = require('./src/interview-context');
+const { createPageStack, MAX_PAGES } = require('./src/pages');
+const { fitImages } = require('./src/fit');
 
 let win = null;
 const isMac = process.platform === 'darwin';
@@ -28,6 +30,49 @@ const WIN_SUPPORTS_CONTENT_PROTECTION = !isWindows || WIN_BUILD >= 19041;
 
 // -------- capture / transcript state --------
 const state = { capturing: false, busy: false, transcribing: { you: false, them: false } };
+
+// -------- page stack (long problems that need scrolling) --------
+// Deliberately outside runFeature: adding a page must work while a request is
+// in flight, and runFeature early-returns on state.busy.
+const pageStack = createPageStack();
+let addingPage = false; // own re-entrancy guard, separate from state.busy
+
+function sendPagesState() {
+  send('pages:state', { count: pageStack.count(), max: MAX_PAGES });
+}
+
+function resizeDataUrl(dataUrl, longEdge) {
+  const img = nativeImage.createFromDataURL(dataUrl);
+  const { width, height } = img.getSize();
+  if (!width || !height) return dataUrl;
+  if (Math.max(width, height) <= longEdge) return dataUrl;
+  const opts = width >= height ? { width: longEdge } : { height: longEdge };
+  return img.resize({ ...opts, quality: 'best' }).toDataURL();
+}
+
+async function addPage() {
+  if (addingPage) return;
+  addingPage = true;
+  try {
+    const shot = await captureScreenshot();
+    const res = pageStack.add(shot);
+    if (res.ok) {
+      send('status', { message: `Page ${res.count} of ${MAX_PAGES} captured. Scroll and press again, or Ctrl+H to solve.` });
+    } else if (res.reason === 'duplicate') {
+      send('status', { message: 'Same screen — scroll first, then capture.' });
+    } else if (res.reason === 'full') {
+      send('status', { message: `Page stack is full at ${MAX_PAGES}. Press Ctrl+H to solve, or click the page badge to clear.` });
+    } else {
+      send('status', { message: 'Screen capture came back empty — grant screen/audio access to cue in your system settings.' });
+    }
+    sendPagesState();
+  } catch (e) {
+    send('status', { message: 'Screen capture failed: ' + (e && e.message ? e.message : String(e)) });
+  } finally {
+    addingPage = false;
+  }
+}
+
 let sttDisabled = false; // set when the key can't reach any speech model (stops retry spam)
 const buffers = { you: [], them: [] };
 const transcript = []; // { channel, text, ts } — capped at MAX_TRANSCRIPT_TURNS
@@ -153,6 +198,12 @@ function createWindow() {
     if (isWindows && shouldProtect && !WIN_SUPPORTS_CONTENT_PROTECTION) {
       send('status', {
         message: `Heads up: your Windows version (build ${WIN_BUILD}) does not support screen-share hiding. Upgrade to Windows 10 build 19041+ or Windows 11 to enable invisibility in screen shares.`
+      });
+    }
+    if (failedShortcuts.length) {
+      const list = failedShortcuts.map(prettyAccel).join(', ');
+      send('status', {
+        message: `Shortcut${failedShortcuts.length > 1 ? 's' : ''} unavailable — another app already owns ${list}. Free ${failedShortcuts.length > 1 ? 'them' : 'it'} and restart cue.`
       });
     }
   });
@@ -336,9 +387,28 @@ async function runFeature(mode, userText) {
     }
 
     let imageDataUrl = null;
+    let imageDataUrls = null;
     if (def.needsScreen) {
       try { imageDataUrl = await captureScreenshot(); }
       catch (e) { send('status', { message: 'Screen capture needs permission — grant screen/audio access to cue in your system settings.' }); }
+    }
+
+    // A non-empty stack turns this into a multi-page send. An empty stack is
+    // the old single-image path, untouched and unresized.
+    const usingStack = mode === 'leetcode' && pageStack.count() > 0;
+    if (usingStack) {
+      if (imageDataUrl) pageStack.add(imageDataUrl);
+      const fitted = fitImages(pageStack.list(), { provider: settings.provider, resize: resizeDataUrl });
+      if (fitted.overBudget) {
+        const mb = (n) => (n / 1048576).toFixed(1);
+        send('llm:error', { message: `Those ${pageStack.count()} pages are ${mb(fitted.bytes)} MB, over ${settings.provider}'s ${mb(fitted.budget)} MB limit even at ${fitted.longEdge}px. Clear the badge and capture fewer pages.` });
+        return;
+      }
+      if (fitted.longEdge) {
+        send('status', { message: `${pageStack.count()} pages resized to ${fitted.longEdge}px to fit ${settings.provider}'s request limit.` });
+      }
+      imageDataUrls = fitted.images;
+      imageDataUrl = null;
     }
 
     const settingsForPrompt = store.getSettings();
@@ -349,8 +419,10 @@ async function runFeature(mode, userText) {
       system,
       turns: [{ role: 'user', text: built }],
       imageDataUrl,
+      imageDataUrls,
       onToken: (t) => send('llm:token', { text: t })
     });
+    if (usingStack) { pageStack.clear(); sendPagesState(); }
     send('llm:done', {});
   } catch (e) {
     send('llm:error', { message: e && e.message ? e.message : String(e) });
@@ -374,6 +446,7 @@ ipcMain.handle('transcript:clear', () => {
   return { ok: true };
 });
 ipcMain.on('ask', (_e, payload) => runFeature(payload.mode, payload.text));
+ipcMain.on('pages:clear', () => { pageStack.clear(); sendPagesState(); });
 ipcMain.on('mic:pcm', (_e, arrayBuffer) => { if (state.capturing) routeAudio('you', arrayBuffer); });
 ipcMain.on('system:pcm', (_e, arrayBuffer) => { if (state.capturing) routeAudio('them', arrayBuffer); });
 ipcMain.on('mouse:ignore', (_e, v) => { if (win) win.setIgnoreMouseEvents(!!v, { forward: true }); });
@@ -381,16 +454,29 @@ ipcMain.on('open-pane', (_e, url) => { shell.openExternal(url).catch(() => {}); 
 ipcMain.on('log', (_e, msg) => console.log('[renderer]', msg));
 
 // -------- shortcuts --------
-function registerShortcuts() {
-  globalShortcut.register('CommandOrControl+Return', () => runFeature('assist', ''));
-  globalShortcut.register('CommandOrControl+Shift+Return', () => runFeature('say', ''));
-  const hRegistered = globalShortcut.register(
-  'CommandOrControl+H',
-  () => runFeature('leetcode', '')
-);
+let failedShortcuts = [];
 
-console.log('[cue] Ctrl+H registered:', hRegistered);
-  globalShortcut.register('CommandOrControl+Shift+X', () => app.quit());
+function prettyAccel(accel) {
+  return accel
+    .replace('CommandOrControl', isMac ? 'Cmd' : 'Ctrl')
+    .replace('Return', 'Enter')
+    .replace(/\+/g, '+');
+}
+
+function registerShortcuts() {
+  const bindings = [
+    ['CommandOrControl+Return', () => runFeature('assist', '')],
+    ['CommandOrControl+Shift+Return', () => runFeature('say', '')],
+    ['CommandOrControl+H', () => runFeature('leetcode', '')],
+    ['CommandOrControl+Shift+H', () => addPage()],
+    ['CommandOrControl+Shift+X', () => app.quit()]
+  ];
+  failedShortcuts = [];
+  for (const [accel, fn] of bindings) {
+    let ok = false;
+    try { ok = globalShortcut.register(accel, fn); } catch (e) { ok = false; }
+    if (!ok) failedShortcuts.push(accel);
+  }
 }
 
 // -------- lifecycle --------
