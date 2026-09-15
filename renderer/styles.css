@@ -101,6 +101,17 @@ html, body {
 .tb-stop:hover { background: rgba(255,255,255,0.08); }
 .tb-stop.active { color: #ff6b6b; }
 
+/* Page stack badge — only visible while a multi-page capture is in progress. */
+#toolbar [hidden] { display: none !important; }   /* #toolbar button sets display:inline-flex, which beats [hidden] */
+.tb-pages {
+  gap: 6px; padding: 5px 11px; border-radius: var(--r-pill);
+  font-size: 12px; font-weight: 500;
+  background: rgba(60,131,245,0.20) !important;
+  border: 1px solid rgba(60,131,245,0.45) !important;
+}
+.tb-pages:hover { background: rgba(60,131,245,0.34) !important; }
+.tb-pages-n { font-family: var(--mono); font-weight: 600; }
+
 /* ============================ Panel ============================ */
 #panel-wrap { position: relative; margin-top: 12px; width: min(624px, 94vw); }
 button:focus { outline: none; }

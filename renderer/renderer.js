@@ -505,6 +505,17 @@
   cue.on('transcript', ({ channel, text }) => {
     appendTranscriptTurn(channel, text, false);
   });
+  const pagesBtn = $('#pages-btn');
+  const pagesDivider = $('#pages-divider');
+  const pagesN = pagesBtn.querySelector('.tb-pages-n');
+  cue.on('pages:state', ({ count, max }) => {
+    const show = count > 0;
+    pagesBtn.hidden = !show;
+    pagesDivider.hidden = !show;
+    pagesN.textContent = String(count);
+    pagesBtn.title = `${count} of ${max} pages captured — click to clear`;
+  });
+  pagesBtn.addEventListener('click', () => cue.pagesClear());
   let statusTimer = null;
   function showStatus(message) {
     let el = document.getElementById('cue-status');
