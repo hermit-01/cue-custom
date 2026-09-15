@@ -50,6 +50,12 @@ function resizeDataUrl(dataUrl, longEdge) {
   return img.resize({ ...opts, quality: 'best' }).toDataURL();
 }
 
+// Human-readable label for the solve shortcut, so status text says "Cmd+H" on
+// macOS instead of a Ctrl+H that does nothing there. Relies on function-declaration
+// hoisting for prettyAccel, defined later in the file — verified this resolves
+// correctly before relying on it.
+const SOLVE_SHORTCUT = prettyAccel('CommandOrControl+H');
+
 async function addPage() {
   if (addingPage) return;
   addingPage = true;
@@ -57,11 +63,11 @@ async function addPage() {
     const shot = await captureScreenshot();
     const res = pageStack.add(shot);
     if (res.ok) {
-      send('status', { message: `Page ${res.count} of ${MAX_PAGES} captured. Scroll and press again, or Ctrl+H to solve.` });
+      send('status', { message: `Page ${res.count} of ${MAX_PAGES} captured. Scroll and press again, or ${SOLVE_SHORTCUT} to solve.` });
     } else if (res.reason === 'duplicate') {
       send('status', { message: 'Same screen — scroll first, then capture.' });
     } else if (res.reason === 'full') {
-      send('status', { message: `Page stack is full at ${MAX_PAGES}. Press Ctrl+H to solve, or click the page badge to clear.` });
+      send('status', { message: `Page stack is full at ${MAX_PAGES}. Press ${SOLVE_SHORTCUT} to solve, or click the page badge to clear.` });
     } else {
       send('status', { message: 'Screen capture came back empty — grant screen/audio access to cue in your system settings.' });
     }
@@ -396,8 +402,19 @@ async function runFeature(mode, userText) {
     // A non-empty stack turns this into a multi-page send. An empty stack is
     // the old single-image path, untouched and unresized.
     const usingStack = mode === 'leetcode' && pageStack.count() > 0;
+    let sentCount = 0;
     if (usingStack) {
-      if (imageDataUrl) pageStack.add(imageDataUrl);
+      if (imageDataUrl) {
+        const addRes = pageStack.add(imageDataUrl);
+        sendPagesState();
+        if (!addRes.ok && addRes.reason === 'full') {
+          send('status', { message: 'Page stack is full — the screen you are on now was not added.' });
+        }
+      }
+      // Snapshot the count now: this is exactly what's about to be sent, so
+      // only these frames get dropped after a successful send below — not
+      // anything captured mid-stream via addPage.
+      sentCount = pageStack.count();
       const fitted = fitImages(pageStack.list(), { provider: settings.provider, resize: resizeDataUrl });
       if (fitted.overBudget) {
         const mb = (n) => (n / 1048576).toFixed(1);
@@ -422,7 +439,7 @@ async function runFeature(mode, userText) {
       imageDataUrls,
       onToken: (t) => send('llm:token', { text: t })
     });
-    if (usingStack) { pageStack.clear(); sendPagesState(); }
+    if (usingStack) { pageStack.drop(sentCount); sendPagesState(); }
     send('llm:done', {});
   } catch (e) {
     send('llm:error', { message: e && e.message ? e.message : String(e) });

@@ -67,3 +67,39 @@ test('hashFrame is stable and distinguishes different frames', () => {
   assert.equal(hashFrame(url(1)), hashFrame(url(1)));
   assert.notEqual(hashFrame(url(1)), hashFrame(url(2)));
 });
+
+test('drop removes only the first n frames, leaving the remainder in order', () => {
+  const s = createPageStack();
+  s.add(url(1)); s.add(url(2)); s.add(url(3));
+  const remaining = s.drop(2);
+  assert.equal(remaining, 1);
+  assert.equal(s.count(), 1);
+  assert.deepEqual(s.list(), [url(3)]);
+});
+
+test('drop of the full count empties the stack', () => {
+  const s = createPageStack();
+  s.add(url(1)); s.add(url(2));
+  const remaining = s.drop(2);
+  assert.equal(remaining, 0);
+  assert.equal(s.count(), 0);
+  assert.deepEqual(s.list(), []);
+});
+
+test('drop clamps past the stack size instead of throwing', () => {
+  const s = createPageStack();
+  s.add(url(1)); s.add(url(2));
+  const remaining = s.drop(99);
+  assert.equal(remaining, 0);
+  assert.equal(s.count(), 0);
+  assert.deepEqual(s.list(), []);
+});
+
+test('drop(0) is a no-op', () => {
+  const s = createPageStack();
+  s.add(url(1)); s.add(url(2));
+  const remaining = s.drop(0);
+  assert.equal(remaining, 2);
+  assert.equal(s.count(), 2);
+  assert.deepEqual(s.list(), [url(1), url(2)]);
+});

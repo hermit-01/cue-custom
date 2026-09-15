@@ -25,7 +25,14 @@ function createPageStack({ maxPages = MAX_PAGES, hash = hashFrame } = {}) {
     },
     list() { return frames.map((f) => f.dataUrl); },
     count() { return frames.length; },
-    clear() { frames.length = 0; }
+    clear() { frames.length = 0; },
+    // Removes the first n frames (the ones that were actually sent), leaving
+    // any frame captured after the send — e.g. mid-stream via addPage — intact.
+    drop(n) {
+      const k = Math.max(0, Math.min(n, frames.length));
+      frames.splice(0, k);
+      return frames.length;
+    }
   };
 }
 
