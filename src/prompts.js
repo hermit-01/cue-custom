@@ -147,11 +147,13 @@ const MODES = {
     resumeMode: 'leetcode',
     buildSystem(_contextBlock) {
       // Context block intentionally ignored — personal info is irrelevant here
-      return 'You are an expert competitive programmer. The screenshot contains a coding problem. ' +
+      return 'You are an expert competitive programmer. The attached screenshot or screenshots contain a coding problem. ' +
+        'If more than one image is attached, they are consecutive top-to-bottom screenshots of the SAME problem, in order, ' +
+        'and consecutive images may overlap. Read them as one continuous problem statement and give ONE answer — never answer each image separately. ' +
         'Respond with: (1) a one-line restatement, (2) a short approach, (3) a clean, correct, idiomatic solution in a fenced code block ' +
         '(use the language shown on screen, else C++), (4) time and space complexity. Keep prose tight.';
     },
-    build() { return 'Solve the coding problem shown in the screenshot.'; }
+    build() { return 'Solve the coding problem shown in the attached image(s).'; }
   }
 };
 

@@ -35,3 +35,20 @@ test('all modes have a build function', () => {
     assert.equal(typeof mode.buildSystem, 'function', `${name}.buildSystem must be a function`);
   }
 });
+
+test('leetcode mode tells the model multiple images are ONE problem', () => {
+  const system = MODES.leetcode.buildSystem(null);
+  assert.match(system, /same problem|one problem|single problem/i);
+  assert.match(system, /top[- ]to[- ]bottom|consecutive|in order/i);
+  assert.match(system, /overlap/i);
+});
+
+test('leetcode user turn does not claim there is exactly one screenshot', () => {
+  const user = MODES.leetcode.build({ transcript: [], userText: '' });
+  assert.doesNotMatch(user, /\bthe screenshot\b/i, 'singular "the screenshot" contradicts a multi-page send');
+});
+
+test('leetcode still falls back to C++', () => {
+  const system = MODES.leetcode.buildSystem(null);
+  assert.match(system, /else C\+\+/);
+});
