@@ -508,11 +508,13 @@
   const pagesBtn = $('#pages-btn');
   const pagesDivider = $('#pages-divider');
   const pagesN = pagesBtn.querySelector('.tb-pages-n');
+  const pagesLabel = $('#pages-label');
   cue.on('pages:state', ({ count, max }) => {
     const show = count > 0;
     pagesBtn.hidden = !show;
     pagesDivider.hidden = !show;
     pagesN.textContent = String(count);
+    pagesLabel.textContent = count === 1 ? 'page' : 'pages';
     pagesBtn.title = `${count} of ${max} pages captured — click to clear`;
   });
   pagesBtn.addEventListener('click', () => cue.pagesClear());
@@ -705,6 +707,7 @@
       ];
   const assistShortcut = isWindows ? '<span class="kbd">Ctrl</span> <span class="kbd">↵</span>' : '<span class="kbd">⌘</span> <span class="kbd">↵</span>';
   const solveShortcut = isWindows ? '<span class="kbd">Ctrl</span> <span class="kbd">H</span>' : '<span class="kbd">⌘</span> <span class="kbd">H</span>';
+  const pagesShortcut = isWindows ? '<span class="kbd">Ctrl</span><span class="kbd">⇧</span><span class="kbd">H</span>' : '<span class="kbd">⌘</span><span class="kbd">⇧</span><span class="kbd">H</span>';
   const quitShortcut = isWindows ? '<span class="kbd">Ctrl</span><span class="kbd">⇧</span><span class="kbd">X</span>' : '<span class="kbd">⌘</span><span class="kbd">⇧</span><span class="kbd">X</span>';
   const OB_STEPS = [
     {
@@ -732,7 +735,7 @@
     {
       icon: '✨',
       title: 'You’re all set',
-      body: 'How to use cue:<ul><li>' + assistShortcut + ' — <strong>Assist</strong> with whatever\'s on screen or being said</li><li>' + solveShortcut + ' — solve a coding problem on screen</li><li>Click <strong>▢</strong> in the top bar to start listening to a meeting</li><li>Type a question and press <span class="kbd">↵</span></li></ul>Reopen this guide anytime by clicking the <strong>cue logo</strong>. Quit with ' + quitShortcut + '.'
+      body: 'How to use cue:<ul><li>' + assistShortcut + ' — <strong>Assist</strong> with whatever\'s on screen or being said</li><li>' + solveShortcut + ' — solve a coding problem on screen</li><li>' + pagesShortcut + ' — add another screenful before solving, for problems too long to fit on screen</li><li>Click <strong>▢</strong> in the top bar to start listening to a meeting</li><li>Type a question and press <span class="kbd">↵</span></li></ul>Reopen this guide anytime by clicking the <strong>cue logo</strong>. Quit with ' + quitShortcut + '.'
     }
   ];
   let obIndex = 0;

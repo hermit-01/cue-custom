@@ -10,6 +10,7 @@ function hashFrame(dataUrl) {
 
 function createPageStack({ maxPages = MAX_PAGES, hash = hashFrame } = {}) {
   const frames = []; // { dataUrl, hash }
+  let generation = 0;
 
   return {
     add(dataUrl) {
@@ -25,7 +26,12 @@ function createPageStack({ maxPages = MAX_PAGES, hash = hashFrame } = {}) {
     },
     list() { return frames.map((f) => f.dataUrl); },
     count() { return frames.length; },
-    clear() { frames.length = 0; },
+    // A wipe invalidates every position a caller may have snapshotted (e.g.
+    // main.js's sentCount) — bump the generation so such a snapshot can be
+    // recognized as stale. add() and drop() never touch this: only a clear
+    // moves the goalposts.
+    clear() { frames.length = 0; generation += 1; },
+    gen() { return generation; },
     // Removes the first n frames (the ones that were actually sent), leaving
     // any frame captured after the send — e.g. mid-stream via addPage — intact.
     drop(n) {

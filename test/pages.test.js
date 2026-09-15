@@ -103,3 +103,40 @@ test('drop(0) is a no-op', () => {
   assert.equal(s.count(), 2);
   assert.deepEqual(s.list(), [url(1), url(2)]);
 });
+
+test('gen() starts at a stable value', () => {
+  const s = createPageStack();
+  assert.equal(s.gen(), createPageStack().gen());
+});
+
+test('gen() is unchanged by add()', () => {
+  const s = createPageStack();
+  const before = s.gen();
+  s.add(url(1));
+  s.add(url(2));
+  assert.equal(s.gen(), before);
+});
+
+test('gen() is unchanged by drop()', () => {
+  const s = createPageStack();
+  s.add(url(1)); s.add(url(2));
+  const before = s.gen();
+  s.drop(1);
+  assert.equal(s.gen(), before);
+});
+
+test('clear() increments gen()', () => {
+  const s = createPageStack();
+  const before = s.gen();
+  s.add(url(1));
+  s.clear();
+  assert.equal(s.gen(), before + 1);
+});
+
+test('two clears increment gen() twice', () => {
+  const s = createPageStack();
+  const before = s.gen();
+  s.clear();
+  s.clear();
+  assert.equal(s.gen(), before + 2);
+});

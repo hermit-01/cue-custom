@@ -97,3 +97,21 @@ test('an unparseable data url is skipped, not sent as garbage', () => {
   assert.equal(content.length, 2, 'one valid image plus the text block');
   assert.equal(content[0].source.data, 'AAAA');
 });
+
+test('images attach only to the LAST turn, and only if it is a user turn (gemini)', () => {
+  const turns = [
+    { role: 'user', text: 'first' },
+    { role: 'assistant', text: 'reply' }
+  ];
+  const c = buildGeminiContents({ turns, imageDataUrls: [IMG1] });
+  assert.deepEqual(c[0], { role: 'user', parts: [{ text: 'first' }] });
+  assert.deepEqual(c[1], { role: 'model', parts: [{ text: 'reply' }] });
+});
+
+test('an unparseable data url is skipped, not sent as garbage (gemini)', () => {
+  const c = buildGeminiContents({ turns: TURNS, imageDataUrls: ['not-a-data-url', IMG1] });
+  const parts = c[0].parts;
+  assert.equal(parts.length, 2, 'text block plus one valid image');
+  assert.equal(parts[0].text, 'Solve the coding problem.');
+  assert.equal(parts[1].inlineData.data, 'AAAA');
+});

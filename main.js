@@ -403,7 +403,25 @@ async function runFeature(mode, userText) {
     // A non-empty stack turns this into a multi-page send. An empty stack is
     // the old single-image path, untouched and unresized.
     const usingStack = mode === 'leetcode' && pageStack.count() > 0;
+
+    // captureScreenshot() returns null (rather than throwing) when there are
+    // no capture sources or the thumbnail comes back empty, so the catch
+    // above never fires for that case. usingStack is exactly "the stack will
+    // supply images for this request" — only leetcode consults the stack, so
+    // this only needs handling when there is truly no image for the request.
+    // leetcode has nothing else to go on (its prompt is purely "solve the
+    // attached image(s)"), so it aborts. assist/ask also use the transcript,
+    // so a missing screenshot there is degraded, not fatal — warn and continue.
+    if (def.needsScreen && !imageDataUrl && !usingStack) {
+      if (mode === 'leetcode') {
+        send('llm:error', { message: 'Screen capture came back empty — grant screen/audio access to cue in your system settings.' });
+        return;
+      }
+      send('status', { message: 'Screen capture came back empty — answering from the conversation only. Grant screen/audio access to cue in your system settings for full answers.' });
+    }
+
     let sentCount = 0;
+    let sentGen = 0;
     if (usingStack) {
       if (imageDataUrl) {
         const addRes = pageStack.add(imageDataUrl);
@@ -416,6 +434,11 @@ async function runFeature(mode, userText) {
       // only these frames get dropped after a successful send below — not
       // anything captured mid-stream via addPage.
       sentCount = pageStack.count();
+      // Snapshot the generation too: if a clear() lands while the stream is
+      // in flight, any frames present afterwards belong to a new problem —
+      // positions from this send no longer mean anything, so drop(sentCount)
+      // must not run against them.
+      sentGen = pageStack.gen();
       const fitted = fitImages(pageStack.list(), { provider: settings.provider, resize: resizeDataUrl });
       if (fitted.overBudget) {
         const mb = (n) => (n / 1048576).toFixed(1);
@@ -440,7 +463,13 @@ async function runFeature(mode, userText) {
       imageDataUrls,
       onToken: (t) => send('llm:token', { text: t })
     });
-    if (usingStack) { pageStack.drop(sentCount); sendPagesState(); }
+    if (usingStack) {
+      // A clear() mid-stream bumped the generation: the frames now on the
+      // stack (if any) belong to a new problem, not the one just sent.
+      // Dropping by position here would delete them by accident.
+      if (pageStack.gen() === sentGen) pageStack.drop(sentCount);
+      sendPagesState();
+    }
     send('llm:done', {});
   } catch (e) {
     send('llm:error', { message: e && e.message ? e.message : String(e) });
@@ -477,8 +506,7 @@ let failedShortcuts = [];
 function prettyAccel(accel) {
   return accel
     .replace('CommandOrControl', isMac ? 'Cmd' : 'Ctrl')
-    .replace('Return', 'Enter')
-    .replace(/\+/g, '+');
+    .replace('Return', 'Enter');
 }
 
 function registerShortcuts() {

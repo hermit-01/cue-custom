@@ -1,5 +1,5 @@
 // LLM factory — OpenAI / Anthropic / Gemini behind one streaming interface.
-// stream({ system, turns:[{role,text}], imageDataUrl, maxTokens, onToken }) -> Promise<fullText>
+// stream({ system, turns:[{role,text}], imageDataUrl, imageDataUrls, maxTokens, onToken }) -> Promise<fullText>
 
 function normalizeProviderName(provider) {
   if (!provider) return 'provider';
