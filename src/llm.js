@@ -24,21 +24,67 @@ function stripDataUrl(dataUrl) {
   return m ? { mime: m[1], b64: m[2] } : null;
 }
 
-async function streamOpenAI({ apiKey, model, system, turns, imageDataUrl, maxTokens, onToken }) {
-  const OpenAI = require('openai');
-  const client = new OpenAI({ apiKey });
+// Images may arrive as a single data URL (assist/ask, unchanged) or as an
+// ordered array of them (leetcode page stack). The array wins when present.
+function imageList({ imageDataUrl, imageDataUrls }) {
+  if (Array.isArray(imageDataUrls) && imageDataUrls.length) return imageDataUrls.filter(Boolean);
+  return imageDataUrl ? [imageDataUrl] : [];
+}
+
+function buildOpenAIMessages({ system, turns, imageDataUrl, imageDataUrls }) {
+  const images = imageList({ imageDataUrl, imageDataUrls });
   const messages = [{ role: 'system', content: system }];
   turns.forEach((t, i) => {
     const last = i === turns.length - 1;
-    if (last && imageDataUrl && t.role === 'user') {
+    if (last && images.length && t.role === 'user') {
       messages.push({ role: 'user', content: [
         { type: 'text', text: t.text },
-        { type: 'image_url', image_url: { url: imageDataUrl } }
+        ...images.map((url) => ({ type: 'image_url', image_url: { url } }))
       ] });
     } else {
       messages.push({ role: t.role, content: t.text });
     }
   });
+  return messages;
+}
+
+function buildAnthropicMessages({ turns, imageDataUrl, imageDataUrls }) {
+  const images = imageList({ imageDataUrl, imageDataUrls });
+  return turns.map((t, i) => {
+    const last = i === turns.length - 1;
+    if (last && images.length && t.role === 'user') {
+      const content = [];
+      // Anthropic is the odd one out: images go AHEAD of the text block.
+      for (const url of images) {
+        const img = stripDataUrl(url);
+        if (img) content.push({ type: 'image', source: { type: 'base64', media_type: img.mime, data: img.b64 } });
+      }
+      content.push({ type: 'text', text: t.text });
+      return { role: 'user', content };
+    }
+    return { role: t.role, content: t.text };
+  });
+}
+
+function buildGeminiContents({ turns, imageDataUrl, imageDataUrls }) {
+  const images = imageList({ imageDataUrl, imageDataUrls });
+  return turns.map((t, i) => {
+    const last = i === turns.length - 1;
+    const parts = [{ text: t.text }];
+    if (last && images.length && t.role === 'user') {
+      for (const url of images) {
+        const img = stripDataUrl(url);
+        if (img) parts.push({ inlineData: { mimeType: img.mime, data: img.b64 } });
+      }
+    }
+    return { role: t.role === 'assistant' ? 'model' : 'user', parts };
+  });
+}
+
+async function streamOpenAI({ apiKey, model, system, turns, imageDataUrl, imageDataUrls, maxTokens, onToken }) {
+  const OpenAI = require('openai');
+  const client = new OpenAI({ apiKey });
+  const messages = buildOpenAIMessages({ system, turns, imageDataUrl, imageDataUrls });
   const stream = await client.chat.completions.create({ model, messages, stream: true, max_tokens: maxTokens });
   let full = '';
   for await (const part of stream) {
@@ -48,20 +94,10 @@ async function streamOpenAI({ apiKey, model, system, turns, imageDataUrl, maxTok
   return full;
 }
 
-async function streamAnthropic({ apiKey, model, system, turns, imageDataUrl, maxTokens, onToken }) {
+async function streamAnthropic({ apiKey, model, system, turns, imageDataUrl, imageDataUrls, maxTokens, onToken }) {
   const Anthropic = require('@anthropic-ai/sdk');
   const client = new Anthropic({ apiKey });
-  const messages = turns.map((t, i) => {
-    const last = i === turns.length - 1;
-    if (last && imageDataUrl && t.role === 'user') {
-      const img = stripDataUrl(imageDataUrl);
-      const content = [];
-      if (img) content.push({ type: 'image', source: { type: 'base64', media_type: img.mime, data: img.b64 } });
-      content.push({ type: 'text', text: t.text });
-      return { role: 'user', content };
-    }
-    return { role: t.role, content: t.text };
-  });
+  const messages = buildAnthropicMessages({ turns, imageDataUrl, imageDataUrls });
   const stream = await client.messages.create({ model, max_tokens: maxTokens, system, messages, stream: true });
   let full = '';
   for await (const ev of stream) {
@@ -70,18 +106,10 @@ async function streamAnthropic({ apiKey, model, system, turns, imageDataUrl, max
   return full;
 }
 
-async function streamGemini({ apiKey, model, system, turns, imageDataUrl, maxTokens, onToken }) {
+async function streamGemini({ apiKey, model, system, turns, imageDataUrl, imageDataUrls, maxTokens, onToken }) {
   const { GoogleGenAI } = require('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
-  const contents = turns.map((t, i) => {
-    const last = i === turns.length - 1;
-    const parts = [{ text: t.text }];
-    if (last && imageDataUrl && t.role === 'user') {
-      const img = stripDataUrl(imageDataUrl);
-      if (img) parts.push({ inlineData: { mimeType: img.mime, data: img.b64 } });
-    }
-    return { role: t.role === 'assistant' ? 'model' : 'user', parts };
-  });
+  const contents = buildGeminiContents({ turns, imageDataUrl, imageDataUrls });
   const stream = await ai.models.generateContentStream({
     model, contents, config: { systemInstruction: system, maxOutputTokens: maxTokens }
   });
@@ -122,4 +150,10 @@ function createLLM(settings) {
   };
 }
 
-module.exports = { createLLM, formatProviderErrorMessage };
+module.exports = {
+  createLLM,
+  formatProviderErrorMessage,
+  buildOpenAIMessages,
+  buildAnthropicMessages,
+  buildGeminiContents
+};
